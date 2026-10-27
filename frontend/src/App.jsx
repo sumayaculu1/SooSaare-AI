@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
+const API_URL = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:5000" : "")).trim().replace(/\/+$/, "");
+
 const workflows = [
   {
     id: "ideas",
@@ -26,11 +28,27 @@ const platforms = [
   "TikTok",
   "Instagram Reels",
   "YouTube Shorts",
+  "YouTube",
   "Facebook",
   "LinkedIn",
 ];
 
-const languages = ["Somali", "English", "Arabic"];
+const languages = ["Somali", "English", "Arabic", "Somali + English"];
+
+const contentTools = [
+  ["hook", "Hook Studio", "⚡"], ["script", "Script Studio", "✦"], ["scenes", "Scene & Shot Planner", "🎬"],
+  ["filming", "Filming Mode", "🎥"], ["visuals", "Visual Planner", "🎨"], ["broll", "B-Roll Studio", "▣"],
+  ["onscreen_text", "On-Screen Text", "Aa"], ["caption", "Caption Studio", "✎"], ["cta", "CTA Generator", "↗"],
+  ["hashtags", "Hashtag Studio", "#"], ["title", "Title Studio", "T"], ["thumbnail", "Thumbnail Studio", "▧"],
+  ["carousel", "Carousel Studio", "▤"], ["calendar", "Content Calendar", "▦"], ["strategy", "Content Strategy", "◉"],
+  ["analyze", "Content Analyzer", "⌁"], ["business", "Business Content", "◫"], ["personal_brand", "Personal Brand", "A"],
+  ["ai_tech", "AI & Tech Studio", "✧"],
+];
+
+const contentStyles = ["Professional", "Educational", "Storytelling", "Energetic", "Friendly", "News", "Business", "Gen-Z", "Inspirational"];
+const audiences = ["Students", "Somali university students", "Creators", "Businesses", "Professionals", "General Audience"];
+const goals = ["Education", "Engagement", "Growth", "Sales", "Leads", "Brand Awareness", "Followers", "Traffic", "Community"];
+const durations = ["15 sec", "30 sec", "45 sec", "60 sec", "60 seconds", "90 sec", "3 min", "5 min", "10 min"];
 
 const templates = [
   {
@@ -193,49 +211,110 @@ const templates = [
     description: "Explain an AI concept in a simple way.",
     prompt: "Explain how this AI technology works in a simple way: ",
   },
+  {
+    id: 21,
+    title: "Customer Problem to Solution",
+    category: "Marketing",
+    icon: "↗",
+    description: "Show a clear customer problem and how a product or service can help.",
+    prompt: "Create a useful marketing video that explains the customer problem and how this product or service helps: ",
+  },
+  {
+    id: 22,
+    title: "Campaign Announcement",
+    category: "Marketing",
+    icon: "✦",
+    description: "Introduce a campaign with one clear message and next step.",
+    prompt: "Create a clear social campaign announcement with a strong message and call to action about: ",
+  },
 ];
 
 function App() {
   const [activeNav, setActiveNav] = useState("Create");
-  const [mode, setMode] = useState("ideas");
+  const [mode, setMode] = useState("idea");
 
   const [topic, setTopic] = useState("");
   const [platform, setPlatform] = useState("TikTok");
   const [language, setLanguage] = useState("Somali");
+  const [style, setStyle] = useState("Educational");
+  const [audience, setAudience] = useState("General Audience");
+  const [goal, setGoal] = useState("Engagement");
+  const [duration, setDuration] = useState("45 sec");
 
   const [content, setContent] = useState(null);
+  const [selectedLibraryId, setSelectedLibraryId] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [aiOnline, setAiOnline] = useState(false);
+  const [aiStatus, setAiStatus] = useState("checking");
   const [error, setError] = useState("");
+  const [toast, setToast] = useState("");
+
+  const notify = (message) => {
+    setToast(message);
+    window.setTimeout(() => setToast(""), 2400);
+  };
 
   const [library, setLibrary] = useState(() => {
     try {
-      return JSON.parse(
-        localStorage.getItem("soosaare-library") || "[]"
-      );
+      const saved = JSON.parse(localStorage.getItem("soosaare-library") || "[]");
+      return Array.isArray(saved) ? saved.filter((item) => item && typeof item.id === "number" && typeof item.title === "string" && typeof item.topic === "string" && item.content && typeof item.content === "object") : [];
     } catch {
       return [];
     }
   });
 
   const [search, setSearch] = useState("");
-  const [favoritesOnly, setFavoritesOnly] = useState(false);
-
-  const selectedWorkflow = workflows.find(
-    (item) => item.id === mode
-  );
+  const [libraryFilter, setLibraryFilter] = useState("All");
 
   useEffect(() => {
-    localStorage.setItem(
-      "soosaare-library",
-      JSON.stringify(library)
-    );
+    try {
+      localStorage.setItem("soosaare-library", JSON.stringify(library));
+    } catch { /* Browser storage can be unavailable or full. */ }
   }, [library]);
+
+  useEffect(() => {
+    let active = true;
+    let timer;
+    const checkHealth = async () => {
+      if (!API_URL) {
+        if (active) {
+          setAiOnline(false);
+          setAiStatus("error");
+        }
+        return;
+      }
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 5000);
+      let response;
+      try {
+        response = await fetch(`${API_URL}/api/health`, { signal: controller.signal });
+        if (!response.ok) throw new Error(`Health request failed (${response.status})`);
+        const data = await response.json();
+        if (active) {
+          const ready = data && (data.status === "ready" || data.status === "ok");
+          setAiOnline(ready);
+          setAiStatus(ready ? "ready" : "error");
+        }
+      } catch (error) {
+        console.error("AI health check failed:", error);
+        if (active) {
+          setAiOnline(false);
+          setAiStatus(response?.ok ? "error" : "offline");
+        }
+      } finally {
+        window.clearTimeout(timeout);
+        if (active) timer = window.setTimeout(checkHealth, 30000);
+      }
+    };
+    checkHealth();
+    return () => { active = false; window.clearTimeout(timer); };
+  }, []);
 
   // ======================================================
   // GENERATE
   // ======================================================
 
-  const handleGenerate = async () => {
+  const handleGenerate = async (requestedAction = "") => {
     if (!topic.trim()) {
       setError(
         mode === "repurpose"
@@ -244,44 +323,88 @@ function App() {
       );
       return;
     }
+    if (!API_URL) {
+      setError("Set VITE_API_URL to your backend URL before generating content.");
+      return;
+    }
 
     setLoading(true);
     setError("");
-    setContent(null);
+    const controller = new AbortController();
+    const requestTimeout = window.setTimeout(() => controller.abort(), 120000);
 
     try {
       const response = await fetch(
-        "http://localhost:5000/api/generate",
+        `${API_URL}/api/generate`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
+          signal: controller.signal,
           body: JSON.stringify({
             topic,
             platform,
             language,
-            mode,
+            mode: requestedAction ? (requestedAction === "ideas" ? "ideas" : "idea") : mode,
+            ...(requestedAction ? { action: requestedAction } : {}),
+            style,
+            audience,
+            goal,
+            duration,
+            context: content ? JSON.stringify(content).slice(0, 12000) : "",
           }),
         }
       );
 
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error("The server returned an unreadable response. Please try again.");
+      }
 
       if (!response.ok) {
         throw new Error(
-          data.error || "Something went wrong."
+          data?.error || "Content generation failed. Please try again."
         );
       }
 
-      setContent(data.content);
-    } catch (err) {
-      console.error(err);
+      const responseMode = requestedAction || mode;
+      const validIdeas = responseMode === "ideas" && Array.isArray(data?.content?.ideas) &&
+        data.content.ideas.length === 10 && data.content.ideas.every((idea) =>
+          idea && typeof idea.title === "string" && typeof idea.angle === "string" && typeof idea.hook === "string");
+      const validTool = requestedAction && !["ideas", "complete_content", "repurpose"].includes(requestedAction) &&
+        Array.isArray(data?.content?.sections) && data.content.sections.length > 0;
+      const validComplete = ["complete_content", "repurpose"].includes(requestedAction) && data?.content &&
+        typeof data.content.hook === "string" && Array.isArray(data.content.scenes) && data.content.scenes.length > 0;
+      const validPackage = !requestedAction && responseMode !== "ideas" && data?.content &&
+        typeof data.content.hook === "string" && typeof data.content.script === "string" &&
+        Array.isArray(data.content.visuals) && Array.isArray(data.content.hashtags) &&
+        typeof data.content.caption === "string" && typeof data.content.cta === "string";
+      if (!validIdeas && !validPackage && !validTool && !validComplete) {
+        throw new Error("The server returned an incomplete content package. Please try again.");
+      }
 
-      setError(
-        "SooSaare could not connect to the AI. Make sure the backend is running."
-      );
+      if (requestedAction && !["ideas", "complete_content", "repurpose"].includes(requestedAction)) {
+        setContent((current) => ({ ...(current || {}), tools: { ...(current?.tools || {}), [requestedAction]: data.content } }));
+      } else if (requestedAction === "ideas") {
+        setContent((current) => ({ ...(current || {}), ideas: data.content.ideas }));
+      } else {
+        setContent((current) => {
+          const { ideas: _previousIdeas, ...currentContent } = current || {};
+          return { ...currentContent, ...data.content, tools: current?.tools || {} };
+        });
+      }
+      return data.content;
+    } catch (err) {
+      setError(err.name === "AbortError"
+        ? "This request timed out. Please try again."
+        : err instanceof TypeError
+          ? "Could not reach the SooSaare API. Check that the backend is running and VITE_API_URL is configured."
+          : err.message || "Content generation failed. Please try again.");
     } finally {
+      window.clearTimeout(requestTimeout);
       setLoading(false);
     }
   };
@@ -295,8 +418,9 @@ function App() {
 
     try {
       await navigator.clipboard.writeText(text);
-    } catch (err) {
-      console.error(err);
+      notify("Copied to clipboard");
+    } catch {
+      notify("Clipboard access is unavailable");
     }
   };
 
@@ -307,7 +431,7 @@ function App() {
       const text = content.ideas
         .map(
           (idea, index) =>
-            `${index + 1}. ${idea.title}\n${idea.angle}\nHook: ${idea.hook}`
+            `${index + 1}. ${idea.title}\n${idea.angle}\nHook: ${idea.hook}\nAudience: ${idea.audience || ""}\nFormat: ${idea.format || ""}\nWhy it works: ${idea.whyItWorks || ""}`
         )
         .join("\n\n");
 
@@ -345,6 +469,11 @@ ${content.hashtags?.join(" ") || ""}
   const saveContent = () => {
     if (!content) return;
 
+    if (library.some((item) => JSON.stringify(item.content) === JSON.stringify(content))) {
+      notify("This content is already saved");
+      return;
+    }
+
     const item = {
       id: Date.now(),
       title:
@@ -360,12 +489,21 @@ ${content.hashtags?.join(" ") || ""}
     };
 
     setLibrary((prev) => [item, ...prev]);
+    notify("Saved to your library");
+  };
+
+  const saveIdea = (idea) => {
+    const item = { id: Date.now(), title: idea.title, topic, platform, language, content: { ideas: [idea] }, favorite: false, createdAt: new Date().toISOString() };
+    setLibrary((items) => [item, ...items]);
+    notify("Idea saved to your library");
   };
 
   const deleteContent = (id) => {
+    if (!window.confirm("Delete this saved content? This cannot be undone.")) return;
     setLibrary((prev) =>
       prev.filter((item) => item.id !== id)
     );
+    notify("Content deleted");
   };
 
   const toggleFavorite = (id) => {
@@ -386,6 +524,7 @@ ${content.hashtags?.join(" ") || ""}
     setTopic(item.topic);
     setPlatform(item.platform);
     setLanguage(item.language);
+    setSelectedLibraryId(item.id);
     setActiveNav("Create");
     setMode("idea");
   };
@@ -398,6 +537,7 @@ ${content.hashtags?.join(" ") || ""}
     setTopic(idea.title);
     setMode("idea");
     setContent(null);
+    setSelectedLibraryId(null);
     setActiveNav("Create");
     setError("");
 
@@ -415,6 +555,7 @@ ${content.hashtags?.join(" ") || ""}
     setTopic(`${template.prompt} `);
     setMode("idea");
     setContent(null);
+    setSelectedLibraryId(null);
     setActiveNav("Create");
     setError("");
 
@@ -431,10 +572,31 @@ ${content.hashtags?.join(" ") || ""}
   const navigate = (page) => {
     setActiveNav(page);
     setError("");
-
     if (page === "Create") {
       setContent(null);
+      setSelectedLibraryId(null);
     }
+  };
+
+  const editContent = (field, value) => {
+    setContent((current) => ({ ...(current || {}), [field]: value }));
+    if (selectedLibraryId) setLibrary((items) => items.map((item) => item.id === selectedLibraryId
+      ? { ...item, content: { ...item.content, [field]: value }, title: field === "hook" ? value : item.title }
+      : item));
+  };
+
+  const regenerateSection = async (field, action) => {
+    const generated = await handleGenerate(action);
+    if (!generated) return;
+    if (action === "complete_content") {
+      if (generated[field] !== undefined) editContent(field, generated[field]);
+      return;
+    }
+    const sections = generated.sections || [];
+    const value = ["hashtags", "broll", "visuals", "onScreenText", "editingPlan", "filmingPlan"].includes(field)
+      ? sections.flatMap((section) => [section.content, ...section.items]).filter(Boolean)
+      : sections.map((section) => [section.content, ...section.items].filter(Boolean).join("\n")).join("\n\n");
+    if (value) editContent(field, value);
   };
 
   const filteredLibrary = useMemo(() => {
@@ -447,12 +609,12 @@ ${content.hashtags?.join(" ") || ""}
           .toLowerCase()
           .includes(search.toLowerCase());
 
-      const matchesFavorite =
-        !favoritesOnly || item.favorite;
+      const matchesFavorite = libraryFilter !== "Favorites" || item.favorite;
+      const matchesRecent = libraryFilter !== "Recent" || library.indexOf(item) < 10;
 
-      return matchesSearch && matchesFavorite;
+      return matchesSearch && matchesFavorite && matchesRecent;
     });
-  }, [library, search, favoritesOnly]);
+  }, [library, search, libraryFilter]);
 
   return (
     <div className="app">
@@ -514,20 +676,29 @@ ${content.hashtags?.join(" ") || ""}
           </button>
         </nav>
 
+        <nav className="tool-nav" aria-label="Content tools">
+          <div className="nav-label nav-label-spaced">CONTENT TOOLS</div>
+          {contentTools.map(([action, label, icon]) => (
+            <button key={action} className={`nav-item ${activeNav === action ? "active" : ""}`} onClick={() => navigate(action)}>
+              <span>{icon}</span>{label}
+            </button>
+          ))}
+        </nav>
+
         <div className="sidebar-bottom">
 
           <div className="ai-status">
-            <span className="status-dot"></span>
+            <span className={`status-dot ${loading ? "loading-indicator" : aiOnline ? "" : "offline"}`}></span>
 
             <div>
               <strong>
-                {loading ? "Creating..." : "AI ready"}
+                {loading ? "Creating..." : aiStatus === "checking" ? "Checking..." : aiStatus === "ready" ? "AI Ready" : aiStatus === "error" ? "AI Error" : "AI Offline"}
               </strong>
 
               <small>
                 {loading
                   ? "SooSaare is working"
-                  : "Ready to create"}
+                    : aiStatus === "checking" ? "Checking backend connection" : aiStatus === "ready" ? "Connected to SooSaare API" : aiStatus === "error" ? "Backend returned an unexpected health response" : "Backend connection unavailable"}
               </small>
             </div>
           </div>
@@ -564,22 +735,25 @@ ${content.hashtags?.join(" ") || ""}
         <header className="topbar">
 
           <div>
+            <select className="mobile-page-select" aria-label="Choose workspace page" value={activeNav} onChange={(event) => navigate(event.target.value)}>
+              {[['Create', 'Create'], ['Library', 'Library'], ['Templates', 'Templates'], ['Profile', 'Profile'], ...contentTools.map(([id, label]) => [id, label])].map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </select>
             <span className="breadcrumb">
               Workspace
             </span>
 
             <span className="slash">/</span>
 
-            <strong>{activeNav}</strong>
+            <strong>{contentTools.find(([id]) => id === activeNav)?.[1] || activeNav}</strong>
           </div>
 
           <div className="top-actions">
-            <button className="top-icon">
-              ?
-            </button>
+            <span className="top-status"><span className={`status-dot ${aiOnline ? "" : "offline"}`} /> {aiStatus === "checking" ? "Checking..." : aiStatus === "ready" ? "AI Ready" : aiStatus === "error" ? "AI Error" : "AI Offline"}</span>
+            <span className="top-help">Help</span>
 
             <button
               className="top-icon"
+              aria-label="Open Asma's profile"
               onClick={() =>
                 setActiveNav("Profile")
               }
@@ -596,7 +770,7 @@ ${content.hashtags?.join(" ") || ""}
               CREATE
           ================================================== */}
 
-          {activeNav === "Create" && !content && (
+          {activeNav === "Create" && (!content || !(content.ideas || content.hook || content.script)) && (
             <CreatePage
               mode={mode}
               setMode={setMode}
@@ -606,10 +780,19 @@ ${content.hashtags?.join(" ") || ""}
               setPlatform={setPlatform}
               language={language}
               setLanguage={setLanguage}
-              selectedWorkflow={selectedWorkflow}
+              style={style}
+              setStyle={setStyle}
+              audience={audience}
+              setAudience={setAudience}
+              goal={goal}
+              setGoal={setGoal}
+              duration={duration}
+              setDuration={setDuration}
               loading={loading}
+              aiOnline={aiOnline}
+              aiStatus={aiStatus}
               error={error}
-              handleGenerate={handleGenerate}
+              handleGenerate={() => handleGenerate(mode === "ideas" ? "ideas" : mode === "repurpose" ? "repurpose" : "complete_content")}
             />
           )}
 
@@ -627,6 +810,9 @@ ${content.hashtags?.join(" ") || ""}
                 onCopy={copyText}
                 onCopyAll={copyAll}
                 onUseIdea={useIdea}
+                onSaveIdea={saveIdea}
+                onGenerateMore={() => handleGenerate("ideas")}
+                error={error}
               />
             )}
 
@@ -647,6 +833,9 @@ ${content.hashtags?.join(" ") || ""}
                 onBack={() => setContent(null)}
                 onRegenerate={handleGenerate}
                 onSave={saveContent}
+                onEdit={editContent}
+                onRegenerateField={regenerateSection}
+                error={error}
                 loading={loading}
               />
             )}
@@ -660,11 +849,12 @@ ${content.hashtags?.join(" ") || ""}
               library={filteredLibrary}
               search={search}
               setSearch={setSearch}
-              favoritesOnly={favoritesOnly}
-              setFavoritesOnly={setFavoritesOnly}
+              filter={libraryFilter}
+              setFilter={setLibraryFilter}
               onOpen={openLibraryItem}
               onDelete={deleteContent}
               onFavorite={toggleFavorite}
+              onCreate={() => navigate("Create")}
             />
           )}
 
@@ -687,10 +877,38 @@ ${content.hashtags?.join(" ") || ""}
             <ProfilePage
               libraryCount={library.length}
               setActiveNav={setActiveNav}
+              templateCount={templates.length}
+              platform={platform}
+              language={language}
+              style={style}
+              audience={audience}
+            />
+          )}
+
+          {contentTools.some(([action]) => action === activeNav) && (
+            <ToolStudio
+              action={activeNav}
+              tool={contentTools.find(([id]) => id === activeNav)}
+              topic={topic} setTopic={setTopic} platform={platform} setPlatform={setPlatform}
+              language={language} setLanguage={setLanguage} style={style} setStyle={setStyle}
+              audience={audience} setAudience={setAudience} goal={goal} setGoal={setGoal}
+              duration={duration} setDuration={setDuration} result={content?.tools?.[activeNav]}
+              loading={loading} error={error} onGenerate={() => handleGenerate(activeNav)} onCopy={copyText}
+              onEdit={(result) => { const updated = { ...(content || {}), tools: { ...(content?.tools || {}), [activeNav]: result } }; setContent(updated); if (selectedLibraryId) setLibrary((items) => items.map((item) => item.id === selectedLibraryId ? { ...item, content: updated } : item)); }}
+              onUseHook={(hook) => { setContent((current) => ({ ...(current || {}), hook, script: current?.script ? `${hook}\n${current.script}` : hook })); setActiveNav("script"); notify("Hook added to your script context"); }}
+              onSave={saveContent}
             />
           )}
 
         </div>
+        <nav className="mobile-nav" aria-label="Main navigation">
+          {[['Create', '✦'], ['Library', '▤'], ['Templates', '◫'], ['Profile', 'A']].map(([page, icon]) => (
+            <button key={page} className={activeNav === page ? 'active' : ''} onClick={() => navigate(page)}>
+              <span>{icon}</span>{page}
+            </button>
+          ))}
+        </nav>
+        {toast && <div className="toast" role="status">{toast}</div>}
       </main>
     </div>
   );
@@ -699,6 +917,36 @@ ${content.hashtags?.join(" ") || ""}
 /* ========================================================
    CREATE PAGE
 ======================================================== */
+
+function ToolStudio({ action, tool, topic, setTopic, platform, setPlatform, language, setLanguage, style, setStyle, audience, setAudience, goal, setGoal, duration, setDuration, result, loading, error, onGenerate, onCopy, onEdit, onUseHook, onSave }) {
+  const [label, title, icon] = tool;
+  const updateSection = (index, key, value) => {
+    const sections = result.sections.map((section, position) => position === index ? { ...section, [key]: value } : section);
+    onEdit({ ...result, sections });
+  };
+
+  return <section className="tool-studio">
+    <header className="tool-heading"><span className="hero-label">SOOSAARE CONTENT TOOLS</span><h1>{icon} {title}</h1><p>Build this asset from your shared content context. Results stay editable and connected to your workspace.</p></header>
+    <div className="creator-panel tool-form">
+      <label htmlFor="tool-topic">Topic, idea, or existing content</label>
+      <textarea id="tool-topic" value={topic} onChange={(event) => setTopic(event.target.value)} placeholder="Describe the content you want to create..." />
+      <div className="settings tool-settings">
+        <div className="setting"><label>Platform</label><select value={platform} onChange={(event) => setPlatform(event.target.value)}>{platforms.map((item) => <option key={item}>{item}</option>)}</select></div>
+        <div className="setting"><label>Language</label><select value={language} onChange={(event) => setLanguage(event.target.value)}>{languages.map((item) => <option key={item}>{item}</option>)}</select></div>
+        <div className="setting"><label>Style</label><select value={style} onChange={(event) => setStyle(event.target.value)}>{contentStyles.map((item) => <option key={item}>{item}</option>)}</select></div>
+        <div className="setting"><label>Audience</label><select value={audience} onChange={(event) => setAudience(event.target.value)}>{audiences.map((item) => <option key={item}>{item}</option>)}</select></div>
+        <div className="setting"><label>Goal</label><select value={goal} onChange={(event) => setGoal(event.target.value)}>{goals.map((item) => <option key={item}>{item}</option>)}</select></div>
+        <div className="setting"><label>Duration</label><select value={duration} onChange={(event) => setDuration(event.target.value)}>{durations.map((item) => <option key={item}>{item}</option>)}</select></div>
+        <button className="create-button" onClick={onGenerate} disabled={loading}>{loading ? "Generating…" : `Generate ${title}`} <span>↗</span></button>
+      </div>
+      {error && <div className="error" role="alert">{error}</div>}
+    </div>
+    {result && <div className="tool-results"><div className="results-top"><h2>{result.title}</h2><div className="result-actions"><button onClick={() => onCopy(result.sections.map((section) => `${section.heading}\n${section.content}\n${section.items.join("\n")}`).join("\n\n"))}>Copy all</button><button onClick={onSave}>Save to Library</button><button className="primary-small" onClick={onGenerate} disabled={loading}>Regenerate</button></div></div><p className="tool-summary">{result.summary}</p>
+      {result.sections.map((section, index) => <article className="output-block tool-result-card" key={`${section.heading}-${index}`}><div className="output-header"><div><span>{String(index + 1).padStart(2, "0")} / {label.toUpperCase()}</span><h2>{section.heading}</h2></div><button className="copy-link" onClick={() => onCopy(`${section.content}\n${section.items.join("\n")}`)}>Copy</button></div><textarea aria-label={`Edit ${section.heading}`} value={section.content} onChange={(event) => updateSection(index, "content", event.target.value)} />{section.items.map((item, itemIndex) => <textarea key={itemIndex} aria-label={`Edit ${section.heading} item ${itemIndex + 1}`} value={item} onChange={(event) => { const items = [...section.items]; items[itemIndex] = event.target.value; updateSection(index, "items", items); }} />)}</article>)}
+      {action === "hook" && <button className="create-button use-shared-hook" onClick={() => onUseHook(result.sections[0]?.content || result.sections[0]?.items[0] || "")}>Use in Script</button>}
+    </div>}
+  </section>;
+}
 
 function CreatePage({
   mode,
@@ -709,17 +957,17 @@ function CreatePage({
   setPlatform,
   language,
   setLanguage,
-  selectedWorkflow,
+  style, setStyle, audience, setAudience, goal, setGoal, duration, setDuration,
   loading,
+  aiOnline,
+  aiStatus,
   error,
   handleGenerate,
 }) {
   return (
     <>
       <section className="hero">
-        <span className="hero-label">
-          SOOSAARE AI
-        </span>
+        <div className="hero-kicker"><span className="hero-label">SOOSAARE AI · CREATOR STUDIO</span><span className={`ready-badge ${aiOnline ? "" : "offline-badge"}`}><span className={`status-dot ${aiOnline ? "" : "offline"}`} /> {aiStatus === "checking" ? "Checking..." : aiStatus === "ready" ? "AI Ready" : aiStatus === "error" ? "AI Error" : "AI Offline"}</span></div>
 
         <h1>
           Create content
@@ -728,9 +976,7 @@ function CreatePage({
         </h1>
 
         <p>
-          Your creative workspace for ideas,
-          scripts and content that actually connects
-          with your audience.
+          From one idea to a complete content package — hooks, scripts, visuals, captions, CTAs and hashtags.
         </p>
       </section>
 
@@ -795,22 +1041,21 @@ function CreatePage({
                 YOUR INPUT
               </span>
 
-              <h2>
-                {selectedWorkflow.title}
-              </h2>
+              <h2>What do you want to create?</h2>
             </div>
           </div>
 
           <div className="editor">
 
             <textarea
+              aria-label="Describe your topic or existing content"
               value={topic}
               onChange={(e) =>
                 setTopic(e.target.value)
               }
               placeholder={
                 mode === "ideas"
-                  ? "Example: AI for Somali students..."
+                  ? "e.g. AI tools every Somali student should know"
                   : mode === "repurpose"
                   ? "Paste your existing content here..."
                   : "Tell SooSaare what you want to create..."
@@ -838,7 +1083,7 @@ function CreatePage({
             <div className="setting">
               <label>Platform</label>
 
-              <select
+              <select aria-label="Platform"
                 value={platform}
                 onChange={(e) =>
                   setPlatform(e.target.value)
@@ -855,7 +1100,7 @@ function CreatePage({
             <div className="setting">
               <label>Language</label>
 
-              <select
+              <select aria-label="Language"
                 value={language}
                 onChange={(e) =>
                   setLanguage(e.target.value)
@@ -869,6 +1114,11 @@ function CreatePage({
               </select>
             </div>
 
+            <div className="setting"><label>Content style</label><select value={style} onChange={(e) => setStyle(e.target.value)}>{contentStyles.map((item) => <option key={item}>{item}</option>)}</select></div>
+            <div className="setting"><label>Audience</label><select value={audience} onChange={(e) => setAudience(e.target.value)}>{audiences.map((item) => <option key={item}>{item}</option>)}</select></div>
+            <div className="setting"><label>Content goal</label><select value={goal} onChange={(e) => setGoal(e.target.value)}>{goals.map((item) => <option key={item}>{item}</option>)}</select></div>
+            <div className="setting"><label>Duration</label><select value={duration} onChange={(e) => setDuration(e.target.value)}>{durations.map((item) => <option key={item}>{item}</option>)}</select></div>
+
             <button
               className="create-button"
               onClick={handleGenerate}
@@ -881,9 +1131,7 @@ function CreatePage({
                 </>
               ) : (
                 <>
-                  {mode === "ideas"
-                    ? "Find ideas"
-                    : "Create content"}
+                  {mode === "ideas" ? "Generate 10 ideas" : mode === "repurpose" ? "Repurpose content" : "Generate Complete Content"}
 
                   <span>↗</span>
                 </>
@@ -922,6 +1170,9 @@ function IdeasResults({
   onCopy,
   onCopyAll,
   onUseIdea,
+  onSaveIdea,
+  onGenerateMore,
+  error,
 }) {
   return (
     <section className="results-page">
@@ -934,6 +1185,8 @@ function IdeasResults({
           ← Back to editor
         </button>
 
+        <button className="secondary-action" onClick={onGenerateMore}>Generate more ideas</button>
+
         <button
           className="secondary-action"
           onClick={onCopyAll}
@@ -942,6 +1195,8 @@ function IdeasResults({
         </button>
       </div>
 
+      {error && <div className="error" role="alert">{error}</div>}
+      {content.scenes && <div className="workflow-stages" aria-label="Content workflow stages">{["Idea", "Strategy", "Hook", "Script", "Production", "Publish"].map((stage, index) => <div className={index < 6 ? "complete" : ""} key={stage}><span>{String(index + 1).padStart(2, "0")}</span>{stage}</div>)}</div>}
       <div className="results-intro">
         <span className="hero-label">
           CONTENT IDEAS
@@ -984,6 +1239,8 @@ function IdeasResults({
               <p className="idea-angle">
                 {idea.angle}
               </p>
+              <p className="idea-meta">Audience: {idea.audience || "Your selected audience"} · Format: {idea.format || platform}</p>
+              {idea.whyItWorks && <p className="idea-angle">Why it works: {idea.whyItWorks}</p>}
 
               <div className="idea-hook">
                 <span>HOOK</span>
@@ -1014,6 +1271,8 @@ function IdeasResults({
                   Copy
                 </button>
 
+                <button className="copy-link" onClick={() => onSaveIdea(idea)}>Save</button>
+
               </div>
 
             </div>
@@ -1038,7 +1297,10 @@ function Results({
   onBack,
   onRegenerate,
   onSave,
+  onEdit,
   loading,
+  error,
+  onRegenerateField,
 }) {
   return (
     <section className="results-page">
@@ -1055,8 +1317,10 @@ function Results({
         <div className="result-actions">
 
           <button
-            onClick={onRegenerate}
-            disabled={loading}
+            className={content.scenes ? "create-another-action" : ""}
+            aria-label={content.scenes ? "Create another content package" : "Regenerate content package"}
+            onClick={content.scenes ? onBack : onRegenerate}
+            disabled={loading && !content.scenes}
           >
             ↻ Regenerate
           </button>
@@ -1076,6 +1340,7 @@ function Results({
 
       </div>
 
+      {error && <div className="error" role="alert">{error}</div>}
       <div className="results-intro">
 
         <span className="hero-label">
@@ -1106,6 +1371,11 @@ function Results({
             onCopy={() =>
               onCopy(content.hook)
             }
+            onChange={(value) => onEdit("hook", value)}
+            onRegenerate={() => onRegenerateField("hook", "hook")}
+            actionsBelow
+            actionName="Hook"
+            variant="hook"
           />
         )}
 
@@ -1117,7 +1387,12 @@ function Results({
             onCopy={() =>
               onCopy(content.script)
             }
+            onChange={(value) => onEdit("script", value)}
+            onRegenerate={() => onRegenerateField("script", "script")}
             large
+            actionsBelow
+            actionName="Script"
+            variant="script"
           />
         )}
 
@@ -1134,6 +1409,7 @@ function Results({
                   Make it visual.
                 </h2>
               </div>
+              <button className="copy-link" onClick={() => onRegenerateField("visuals", "visuals")}>Regenerate</button>
             </div>
 
             <div className="visual-timeline">
@@ -1152,7 +1428,7 @@ function Results({
                     </span>
 
                     <div>
-                      <p>{visual}</p>
+                      <textarea aria-label={`Edit visual direction ${index + 1}`} value={visual} onChange={(event) => { const visuals = [...content.visuals]; visuals[index] = event.target.value; onEdit("visuals", visuals); }} />
                     </div>
                   </div>
                 )
@@ -1170,6 +1446,8 @@ function Results({
             onCopy={() =>
               onCopy(content.caption)
             }
+            onChange={(value) => onEdit("caption", value)}
+            onRegenerate={() => onRegenerateField("caption", "caption")}
           />
         )}
 
@@ -1181,6 +1459,8 @@ function Results({
             onCopy={() =>
               onCopy(content.cta)
             }
+            onChange={(value) => onEdit("cta", value)}
+            onRegenerate={() => onRegenerateField("cta", "cta")}
           />
         )}
 
@@ -1209,6 +1489,7 @@ function Results({
               >
                 Copy hashtags
               </button>
+              <button className="copy-link" onClick={() => onRegenerateField("hashtags", "hashtags")}>Regenerate</button>
 
             </div>
 
@@ -1223,8 +1504,11 @@ function Results({
               )}
 
             </div>
+            <textarea className="edit-list-field" aria-label="Edit hashtags" value={content.hashtags.join("\n")} onChange={(event) => onEdit("hashtags", event.target.value.split("\n"))} />
           </div>
         )}
+
+        {content.scenes?.length > 0 && <CompletePackage content={content} onEdit={onEdit} onCopy={onCopy} onRegenerate={onRegenerateField} />}
 
       </div>
     </section>
@@ -1241,13 +1525,15 @@ function OutputBlock({
   text,
   onCopy,
   large = false,
+  onChange,
+  onRegenerate,
+  actionsBelow = false,
+  actionName = "content",
+  variant = "",
 }) {
   return (
-    <article
-      className={`output-block ${
-        large ? "large" : ""
-      }`}
-    >
+    <section className={actionsBelow ? `result-content-section ${variant}-result-section` : undefined}>
+    <article className={`output-block ${large ? "large" : ""} ${actionsBelow ? `${variant}-result-card` : ""}`}>
 
       <div className="output-header">
 
@@ -1256,21 +1542,34 @@ function OutputBlock({
           <h2>{title}</h2>
         </div>
 
-        <button
-          className="copy-link"
-          onClick={onCopy}
-        >
-          Copy
-        </button>
+        {!actionsBelow && <>
+          <button
+            className="copy-link"
+            onClick={onCopy}
+          >
+            Copy
+          </button>
+          {onRegenerate && <button className="copy-link" onClick={onRegenerate}>Regenerate</button>}
+        </>}
 
       </div>
 
-      <div className="output-text">
-        {text}
-      </div>
+      {onChange ? <textarea className="output-edit" aria-label={`Edit ${title}`} value={text} onChange={(event) => onChange(event.target.value)} /> : <div className="output-text">{text}</div>}
 
     </article>
+    {actionsBelow && <div className={`result-section-actions ${variant}-result-actions`}>
+      <button className="result-section-action" onClick={onCopy}><span className="action-number">01</span><span>Copy {actionName}</span></button>
+      {onRegenerate && <button className="result-section-action" onClick={onRegenerate}><span className="action-number">02</span><span>Regenerate {actionName}</span></button>}
+    </div>}
+    </section>
   );
+}
+
+function CompletePackage({ content, onEdit, onCopy, onRegenerate }) {
+  const fields = [["idea", "Content idea"], ["angle", "Content angle"], ["audience", "Target audience"], ["goal", "Content goal", "strategy"], ["strategy", "Content strategy", "strategy"], ["filmingPlan", "Solo filming plan", "filming"], ["visuals", "Visual plan", "visuals"], ["broll", "B-Roll plan", "broll"], ["onScreenText", "On-screen text", "onscreen_text"], ["editingPlan", "Editing plan", "scenes"], ["title", "Title", "title"], ["thumbnail", "Thumbnail concept", "thumbnail"], ["postingRecommendation", "Posting recommendation", "calendar"]];
+  return <section className="complete-package"><div className="output-block"><div className="output-header"><div><span>PRODUCTION WORKSPACE</span><h2>Plan, film, edit and publish</h2></div><button className="copy-link" onClick={() => onCopy(JSON.stringify(content, null, 2))}>Copy package</button></div><div className="package-fields">{fields.map(([field, label, action]) => <div className="package-field" key={field}>{label}<textarea aria-label={`Edit ${label}`} value={Array.isArray(content[field]) ? content[field].join("\n") : content[field] || ""} onChange={(event) => onEdit(field, Array.isArray(content[field]) ? event.target.value.split("\n") : event.target.value)} />{action && <button className="copy-link" onClick={() => onRegenerate(field, action)}>Regenerate {label.toLowerCase()}</button>}</div>)}</div></div>
+    <div className="output-block"><div className="output-header"><div><span>SCENE & SHOT PLANNER</span><h2>Film this, scene by scene</h2></div></div>{content.scenes.map((scene, index) => <div className="editable-scene" key={index}><h3>Scene {String(scene.sceneNumber || index + 1).padStart(2, "0")} · {scene.duration}</h3><div className="package-fields">{Object.entries(scene).filter(([key]) => key !== "sceneNumber").map(([key, value]) => <label className="package-field" key={key}>{key.replace(/[A-Z]/g, (letter) => ` ${letter}`).replace(/^./, (letter) => letter.toUpperCase())}<textarea value={value || ""} onChange={(event) => { const scenes = [...content.scenes]; scenes[index] = { ...scenes[index], [key]: event.target.value }; onEdit("scenes", scenes); }} /></label>)}</div></div>)}</div>
+  </section>;
 }
 
 /* ========================================================
@@ -1281,11 +1580,12 @@ function LibraryPage({
   library,
   search,
   setSearch,
-  favoritesOnly,
-  setFavoritesOnly,
+  filter,
+  setFilter,
   onOpen,
   onDelete,
   onFavorite,
+  onCreate,
 }) {
   return (
     <section className="library-page">
@@ -1307,14 +1607,19 @@ function LibraryPage({
 
         <button
           className={`favorite-filter ${
-            favoritesOnly ? "active" : ""
+            filter === "Favorites" ? "active" : ""
           }`}
           onClick={() =>
-            setFavoritesOnly(!favoritesOnly)
+            setFilter("Favorites")
           }
         >
           ★ Favorites
         </button>
+      </div>
+
+      <div className="library-filter-row">
+        <button className={`favorite-filter ${filter === "Recent" ? "active" : ""}`} onClick={() => setFilter("Recent")}>Recent</button>
+        <button className={`favorite-filter ${filter === "All" ? "active" : ""}`} onClick={() => setFilter("All")}>All</button>
       </div>
 
       <div className="library-search">
@@ -1344,11 +1649,12 @@ function LibraryPage({
             Create something great and save it
             here for later.
           </p>
+          <button className="create-button empty-cta" onClick={onCreate}>Create content <span>↗</span></button>
 
         </div>
       ) : library.length > 0 &&
         !library.some((item) =>
-          favoritesOnly
+          filter === "Favorites"
             ? item.favorite
             : true
         ) ? (
@@ -1358,7 +1664,7 @@ function LibraryPage({
           </div>
 
           <h2>
-            No favorites yet.
+            {filter === "Favorites" ? "No favorites yet." : "No recent content yet."}
           </h2>
 
           <p>
@@ -1460,6 +1766,7 @@ function TemplatesPage({ templates, onUse }) {
     "Business",
     "Personal Brand",
     "AI & Tech",
+    "Marketing",
   ];
 
   const filteredTemplates = templates.filter((template) => {
@@ -1588,6 +1895,11 @@ function TemplatesPage({ templates, onUse }) {
 function ProfilePage({
   libraryCount,
   setActiveNav,
+  templateCount,
+  platform,
+  language,
+  style,
+  audience,
 }) {
   return (
     <section className="profile-page">
@@ -1656,7 +1968,7 @@ function ProfilePage({
           </span>
 
           <strong>
-            6
+            {templateCount}
           </strong>
         </div>
 
@@ -1680,7 +1992,7 @@ function ProfilePage({
           </div>
 
           <span>
-            Somali
+            {language}
           </span>
         </div>
 
@@ -1696,11 +2008,16 @@ function ProfilePage({
           </div>
 
           <span>
-            TikTok
+            {platform}
           </span>
         </div>
 
+        <div className="setting-row"><div><strong>Content style</strong><small>Current workspace preference</small></div><span>{style}</span></div>
+        <div className="setting-row"><div><strong>Audience</strong><small>Current target audience</small></div><span>{audience}</span></div>
+
       </div>
+
+      <div className="profile-quick-actions"><button onClick={() => setActiveNav("Create")}>Create content</button><button onClick={() => setActiveNav("Templates")}>Browse templates</button><button onClick={() => setActiveNav("Library")}>Open library</button></div>
 
       <button
         className="back-create"
