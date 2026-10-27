@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
-const API_URL = import.meta.env.DEV
-  ? (import.meta.env.VITE_API_URL || "http://localhost:5000").trim().replace(/\/+$/, "")
-  : "";
+const API_URL = (import.meta.env.DEV ? import.meta.env.VITE_API_URL || "" : "").trim().replace(/\/+$/, "");
 
 const workflows = [
   {
