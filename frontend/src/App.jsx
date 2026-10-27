@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
-const API_URL = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:5000" : "")).trim().replace(/\/+$/, "");
+const API_URL = import.meta.env.DEV
+  ? (import.meta.env.VITE_API_URL || "http://localhost:5000").trim().replace(/\/+$/, "")
+  : "";
 
 const workflows = [
   {
@@ -276,13 +278,6 @@ function App() {
     let active = true;
     let timer;
     const checkHealth = async () => {
-      if (!API_URL) {
-        if (active) {
-          setAiOnline(false);
-          setAiStatus("error");
-        }
-        return;
-      }
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 5000);
       let response;
@@ -323,11 +318,6 @@ function App() {
       );
       return;
     }
-    if (!API_URL) {
-      setError("Set VITE_API_URL to your backend URL before generating content.");
-      return;
-    }
-
     setLoading(true);
     setError("");
     const controller = new AbortController();
