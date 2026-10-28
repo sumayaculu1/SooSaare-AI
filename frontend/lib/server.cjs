@@ -263,12 +263,14 @@ function createApp() {
   }));
   app.use(express.json({ limit: "32kb" }));
 
+  const health = { service: "SooSaare AI API", status: "ready" };
+
   app.get("/", (_req, res) => {
-    res.json({ service: "SooSaare AI API", status: "ready" });
+    res.json(health);
   });
 
   app.get("/api/health", (_req, res) => {
-    res.json({ service: "SooSaare AI API", status: "ready" });
+    res.json(health);
   });
 
   app.post("/api/generate", async (req, res) => {
@@ -299,7 +301,7 @@ function createApp() {
     }
     if (!process.env.GEMINI_API_KEY) {
       console.error("GEMINI_API_KEY is not configured in backend/backend/.env");
-      return res.status(503).json({ error: "AI generation is temporarily unavailable. Please try again later." });
+      return res.status(503).json({ error: "Gemini is not configured for this deployment. Add GEMINI_API_KEY in Vercel Project Settings → Environment Variables, then redeploy." });
     }
 
     try {

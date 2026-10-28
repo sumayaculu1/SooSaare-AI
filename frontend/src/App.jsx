@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
-const API_URL = (import.meta.env.DEV ? import.meta.env.VITE_API_URL || "" : "").trim().replace(/\/+$/, "");
-
 const workflows = [
   {
     id: "ideas",
@@ -280,7 +278,7 @@ function App() {
       const timeout = window.setTimeout(() => controller.abort(), 5000);
       let response;
       try {
-        response = await fetch(`${API_URL}/api/health`, { signal: controller.signal });
+        response = await fetch("/api/health", { signal: controller.signal });
         if (!response.ok) throw new Error(`Health request failed (${response.status})`);
         const data = await response.json();
         if (active) {
@@ -323,7 +321,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `${API_URL}/api/generate`,
+        "/api/generate",
         {
           method: "POST",
           headers: {
@@ -389,7 +387,7 @@ function App() {
       setError(err.name === "AbortError"
         ? "This request timed out. Please try again."
         : err instanceof TypeError
-          ? "Could not reach the SooSaare API. Check that the backend is running and VITE_API_URL is configured."
+          ? "Could not reach the SooSaare API at /api/generate. Check the deployment and try again."
           : err.message || "Content generation failed. Please try again.");
     } finally {
       window.clearTimeout(requestTimeout);

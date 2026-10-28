@@ -7,11 +7,11 @@
 - Framework: Vite
 - Build Command: `npm run build`
 - Output Directory: `dist`
-- Environment Variable: `GEMINI_API_KEY` (server-side Vercel environment variable; never prefix it with `VITE_`)
+- Environment Variable: `GEMINI_API_KEY` (server-side Vercel variable; never prefix it with `VITE_`)
 
-The Vercel project serves the Vite frontend and the functions in `frontend/api/` from one HTTPS origin. The React app calls `/api/health` and `/api/generate` in production. Local development can set `VITE_API_URL=http://localhost:5000` in `frontend/.env.local`.
+Vercel serves the Vite frontend and the functions in `frontend/api/` from one HTTPS origin. The React app uses the relative `/api/health` and `/api/generate` endpoints, so production API calls stay on the Vercel origin. Vite's `/api` proxy to `http://localhost:5000` applies only during local development.
 
-After adding `GEMINI_API_KEY` in Vercel Project Settings → Environment Variables for Production (and Preview if desired), redeploy. Vercel supplies the deployment origin used by the API's CORS allowlist.
+Add `GEMINI_API_KEY` in Vercel Project Settings → Environment Variables for Production (and Preview if desired), then redeploy. The `/api/generate` function reads this server-side variable and makes real Google Gemini requests. Do not expose the key through a `VITE_` variable.
 
 ## Local development
 
